@@ -9,8 +9,13 @@ import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.servlet.ModelAndView;
 
-
+import javax.servlet.http.Cookie;
+import javax.servlet.http.HttpServletRequest;
+import javax.servlet.http.HttpServletResponse;
 import java.util.ArrayList;
+import java.util.HashMap;
+import java.util.Random;
+import java.util.UUID;
 
 
 @Controller
@@ -20,18 +25,14 @@ public class UserController {
     @Autowired
     JdbcTemplate jdbcTemplate;
 
+    HashMap<String, ServerMemory> memory = new HashMap<String, ServerMemory>();
+
     @GetMapping("/register")
     public ModelAndView showRegister() {
         ModelAndView regMV = new ModelAndView("register.html");
         return regMV;
 
 
-    }
-
-    @GetMapping("/dashboard")
-    public ModelAndView showDash() {
-        ModelAndView dashMV = new ModelAndView("dashboard.html");
-        return dashMV;
     }
 
 
@@ -83,13 +84,14 @@ public class UserController {
     }
 
     @PostMapping(value = "login-form", consumes = MediaType.APPLICATION_FORM_URLENCODED_VALUE)
-    public ModelAndView loginPost(LoginForm loginFormParams) {
+    public ModelAndView loginPost(HttpServletRequest req, HttpServletResponse resp,
+                                  LoginForm loginFormParams) {
 
 
         ModelAndView loginMV = new ModelAndView("Login.html");
         String queryStm = "SELECT * FROM users WHERE users= '" + loginFormParams.getUsername() + "';";
 
-        ArrayList<User> users =(ArrayList<User>) jdbcTemplate.query(queryStm, new UserMapper());
+        ArrayList<User> users = (ArrayList<User>) jdbcTemplate.query(queryStm, new UserMapper());
         if (users.size() == 0) {
             loginMV.addObject("errLogin", "nu exista cont cu acest email");
             return loginMV;
@@ -99,6 +101,11 @@ public class UserController {
         } else {
             User dbUser = users.get(0);
             if (dbUser.getPassword().equals(loginFormParams.getPassword())) {
+                resp.addCookie(new Cookie("username", dbUser.getUsername()));
+
+                Cookie[] cookies = req.getCookies();
+                Cookie sessionCookie = createUserCookies(dbUser, cookies);
+                resp.addCookie(sessionCookie);
                 return new ModelAndView("redirect:/dashboard");
             } else {
                 loginMV.addObject("errLogin", "parola incorecta");
@@ -106,6 +113,60 @@ public class UserController {
 
             }
         }
+    }
+
+    @GetMapping("/dashboard")
+    public ModelAndView showDash(HttpServletRequest req, HttpServletResponse resp) {
+        ModelAndView dashMV = new ModelAndView("dashboard.html");
+
+
+        Cookie[] cookies = req.getCookies();
+        if (cookies == null) {
+            dashMV.addObject("err", "Utilizatorul nu este autentificat");
+            return dashMV;
+        }
+
+        boolean isAuthenticated = false;
+
+        for (Cookie cookie : cookies) {
+            if (cookie.getName().equals("username")) {
+                dashMV.addObject("username", cookie.getValue());
+                isAuthenticated = true;
+            }
+        }
+        if (isAuthenticated) {
+            dashMV.addObject("err", "Utilizatorul nu este autentificat");
+        }
+        dashMV.addObject("isAutjenticated", isAuthenticated);
+
+        return dashMV;
+    }
+
+    private Cookie createUserCookies(User dbUser, Cookie[] cookies) {
+        Cookie sessionCookie = findCookie("sessionId", cookies);
+        if (sessionCookie == null) {
+            UUID uuid = UUID.randomUUID();
+            memory.put(uuid.toString(), new ServerMemory(dbUser.getUsername(), 0, createRandomInt(), createRandomInt()));
+            sessionCookie = new Cookie("sessionId", uuid.toString());
+        }
+        return sessionCookie;
+    }
+
+
+    private Cookie findCookie(String name, Cookie[] cookies) {
+        if (cookies == null) {
+            return null;
+        }
+        for (Cookie cookie : cookies) {
+            if (cookie.getName().equals(name)) {
+                return cookie;
+            }
+        }
+        return null;
+    }
+    private int createRandomInt() {
+        Random rand = new Random();
+        return rand.nextInt(10);
     }
 }
 
